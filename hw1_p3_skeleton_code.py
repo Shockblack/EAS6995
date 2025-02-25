@@ -3,6 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from torch.utils.data import DataLoader, Subset
 from torchvision import datasets, transforms
+from tqdm import tqdm
 
 
 # Load the FashionMNIST dataset 
@@ -10,8 +11,8 @@ def load_data(batch_size=64):
     transform = transforms.Compose([transforms.ToTensor()])  # Only convert to tensor
 
     # Download the dataset
-    train_dataset = datasets.FashionMNIST(root='./data', train=True, download=True, transform=transform)
-    test_dataset = datasets.FashionMNIST(root='./data', train=False, download=True, transform=transform)
+    train_dataset = datasets.MNIST(root='./data', train=True, download=True, transform=transform)
+    test_dataset = datasets.MNIST(root='./data', train=False, download=True, transform=transform)
 
     # --- Normalize data manually to the range [0, 1] ---
     # Normalize to [0, 1]
@@ -80,7 +81,7 @@ def softmax_forward(Z):
     Z: Output logits (before softmax)
     """
     exp_z = np.exp(Z)  # Apply softmax function (numerical stability)
-    output = exp_z/np.sum(exp_z)  # Normalize exp_z to get the softmax output
+    output = exp_z/np.sum(exp_z, axis=1, keepdims=True)  # Normalize exp_z to get the softmax output
     return output
 
 # Backward pass for Fully Connected Layer (Linear)
@@ -92,16 +93,13 @@ def fully_connected_backward(X, Z, W, dZ):
     W: Weight matrix
     dZ: Gradient of the loss with respect to Z (from the next layer)
     """
-    print("X shape: ", X.shape)
-    print("Z shape: ", Z.shape)
-    print("W shape: ", W.shape)
-    print("dZ shape: ", dZ.shape)
-    dW = X @ dZ  # Compute gradient of loss with respect to weights
-    db = np.sum(dZ, axis=1)  # Compute gradient of loss with respect to biases
-    dZ = W @ Z.T  # Compute gradient of loss with respect to Z
-    print("dW shape: ", dW.shape)
-    print("db shape: ", db.shape)
-    print("dZ shape: ", dZ.shape)
+    try:
+        dW = X.T @ dZ / X.shape[0]  # Compute gradient of loss with respect to weights
+        db = np.sum(dZ, axis=0) / X.shape[0]  # Compute gradient of loss with respect to biases
+        dZ = Z @ W.T  # Compute gradient of loss with respect to Z
+    except:
+        import ipdb; ipdb.set_trace()
+
     return dW, db, dZ
 
 # Backward pass for ReLU activation
@@ -111,9 +109,7 @@ def relu_backward(Z, dA):
     Z: Input to ReLU (before activation)
     dA: Gradient of the loss with respect to activations (from the next layer)
     """
-    print("Z shape: ", Z.shape)
-    print("dA shape: ", dA.shape)
-    dZ = dA * (Z > 0)  # Derivative of ReLU: 1 if Z > 0, 0 otherwise
+    dZ = (Z > 0).astype(float)*dA  # Derivative of ReLU: 1 if Z > 0, 0 otherwise
     return dZ
 
 # Backward pass for Softmax Layer
@@ -164,7 +160,7 @@ def train(train_loader, test_loader, epochs=10000, learning_rate=0.01):
     test_accuracy = []
 
     # Loop through epochs
-    for epoch in range(epochs):
+    for epoch in tqdm(range(epochs)):
         epoch_loss = 0
         test_epoch_loss = 0
         correct_predictions_total = 0
@@ -186,34 +182,31 @@ def train(train_loader, test_loader, epochs=10000, learning_rate=0.01):
             
             # --- Implement loss computation ---
             # Cross-entropy loss
-            loss = - np.sum(Y_batch * np.log(Y_pred))
+            loss = - np.sum(Y_batch * np.log(Y_pred)) / Y_batch.shape[0]
 
             epoch_loss = epoch_loss + loss
 
             # --- Implement backward pass ---
-            print("Starting backwards")
-            print("Y_pred shape: ", Y_pred.shape)
-            print("Y_batch shape: ", Y_batch.shape)
             dZ3 = softmax_backward(Y_pred, Y_batch)
-            print("Softmax done")
             dW3, db3, dA2 = fully_connected_backward(A2, Z3, W3, dZ3)
-            print("Fully connected 1 done")
             dZ2 = relu_backward(Z2, dA2)
-            print("Relu 1 done")
             dW2, db2, dA1 = fully_connected_backward(A1, Z2, W2, dZ2)
-            print("Fully connected 2 done")
             dZ1 = relu_backward(Z1, dA1)
-            print("Relu 2 done")
             dW1, db1, _ = fully_connected_backward(X_batch, Z1, W1, dZ1)
-            print("Fully connected 3 done")
+
 
             # --- Implement weight update ---
             W1, b1 = update_weights(W1, b1, dW1, db1, learning_rate)
             W2, b2 = update_weights(W2, b2, dW2, db2, learning_rate)
             W3, b3 = update_weights(W3, b3, dW3, db3, learning_rate)
 
+
+
             # Track accuracy
-            correct_predictions = np.argmax(Y_pred, axis=0) == np.argmax(Y_batch, axis=1)
+            Y_pred = np.argmax(Y_pred, axis=1)
+            Y_batch = np.argmax(Y_batch, axis=1)
+            correct_predictions = Y_pred == Y_batch
+            # import ipdb; ipdb.set_trace()
             correct_predictions_total = correct_predictions_total + np.sum(correct_predictions)
             total_samples = total_samples + Y_batch.shape[0]
             
@@ -225,7 +218,7 @@ def train(train_loader, test_loader, epochs=10000, learning_rate=0.01):
         training_loss.append(epoch_loss / len(train_loader))
         training_accuracy.append(train_accuracy)
 
-        # TODO: For every 100 epochs, get the validation loss and error
+        # For every 100 epochs, get the validation loss and error
         if (epoch + 1) % 100 == 0:
             test_X, test_Y = next(iter(test_loader))
             test_X = test_X.numpy().reshape(test_X.shape[0], -1).T
@@ -238,7 +231,7 @@ def train(train_loader, test_loader, epochs=10000, learning_rate=0.01):
             Y_pred = softmax_forward(Z3)
 
             test_loss = - np.sum(test_Y * np.log(Y_pred))
-            correct_predictions = np.argmax(Y_pred, axis=0) == np.argmax(test_Y, axis=1)
+            correct_predictions = np.argmax(Y_pred, axis=1) == np.argmax(test_Y, axis=1)
             test_accuracy = np.sum(correct_predictions) / test_Y.shape[0]
             print(f"Validation Loss: {test_loss}, Validation Accuracy: {test_accuracy * 100}%")
             test_loss.append(test_loss)
@@ -285,6 +278,8 @@ def main():
     ax2.legend()
     plt.tight_layout()
     plt.show()
+
+    import ipdb; ipdb.set_trace()
 
 if __name__ == "__main__":
     main()
