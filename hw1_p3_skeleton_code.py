@@ -55,13 +55,7 @@ def fully_connected_forward(X, W, b):
     W: Weight matrix
     b: Bias vector
     """
-    try:
-        Z = X @ W + b # Compute linear output
-    except:
-        print("X shape: ", X.shape)
-        print("W shape: ", W.shape)
-        print("b shape: ", b.shape)
-        import ipdb; ipdb.set_trace()
+    Z = X @ W + b # Compute linear output
     return Z
 
 # Forward pass for ReLU activation
@@ -80,7 +74,7 @@ def softmax_forward(Z):
     Softmax activation function forward pass.
     Z: Output logits (before softmax)
     """
-    exp_z = np.exp(Z)  # Apply softmax function (numerical stability)
+    exp_z = np.exp(Z - np.max(Z, axis=1, keepdims=True))  # Apply softmax function
     output = exp_z/np.sum(exp_z, axis=1, keepdims=True)  # Normalize exp_z to get the softmax output
     return output
 
@@ -93,13 +87,9 @@ def fully_connected_backward(X, Z, W, dZ):
     W: Weight matrix
     dZ: Gradient of the loss with respect to Z (from the next layer)
     """
-    try:
-        dW = X.T @ dZ / X.shape[0]  # Compute gradient of loss with respect to weights
-        db = np.sum(dZ, axis=0) / X.shape[0]  # Compute gradient of loss with respect to biases
-        dZ = Z @ W.T  # Compute gradient of loss with respect to Z
-    except:
-        import ipdb; ipdb.set_trace()
-
+    dW = X.T @ dZ / X.shape[0]  # Compute gradient of loss with respect to weights
+    db = np.sum(dZ, axis=0) / X.shape[0]  # Compute gradient of loss with respect to biases
+    dZ = dZ @ W.T  # Compute gradient of loss with respect to Z
     return dW, db, dZ
 
 # Backward pass for ReLU activation
@@ -182,7 +172,7 @@ def train(train_loader, test_loader, epochs=10000, learning_rate=0.01):
             
             # --- Implement loss computation ---
             # Cross-entropy loss
-            loss = - np.sum(Y_batch * np.log(Y_pred)) / Y_batch.shape[0]
+            loss = - np.sum(Y_batch * np.log(Y_pred + 1e-8)) / Y_batch.shape[0]
 
             epoch_loss = epoch_loss + loss
 
@@ -206,9 +196,8 @@ def train(train_loader, test_loader, epochs=10000, learning_rate=0.01):
             Y_pred = np.argmax(Y_pred, axis=1)
             Y_batch = np.argmax(Y_batch, axis=1)
             correct_predictions = Y_pred == Y_batch
-            # import ipdb; ipdb.set_trace()
             correct_predictions_total = correct_predictions_total + np.sum(correct_predictions)
-            total_samples = total_samples + Y_batch.shape[0]
+            total_samples = total_samples + X_batch.shape[0]
             
 
         # Print out the progress
@@ -219,10 +208,11 @@ def train(train_loader, test_loader, epochs=10000, learning_rate=0.01):
         training_accuracy.append(train_accuracy)
 
         # For every 100 epochs, get the validation loss and error
-        if (epoch + 1) % 100 == 0:
+        if (epoch + 1) % 10 == 0:
             test_X, test_Y = next(iter(test_loader))
-            test_X = test_X.numpy().reshape(test_X.shape[0], -1).T
+            test_X = test_X.numpy().reshape(test_X.shape[0], -1)
             test_Y = torch.eye(output_dim)[test_Y]
+            test_Y = test_Y.numpy()
             Z1 = fully_connected_forward(test_X, W1, b1)
             A1 = relu_forward(Z1)
             Z2 = fully_connected_forward(A1, W2, b2)
@@ -230,13 +220,17 @@ def train(train_loader, test_loader, epochs=10000, learning_rate=0.01):
             Z3 = fully_connected_forward(A2, W3, b3)
             Y_pred = softmax_forward(Z3)
 
-            test_loss = - np.sum(test_Y * np.log(Y_pred))
+            loss = - np.sum(test_Y * np.log(Y_pred))
             correct_predictions = np.argmax(Y_pred, axis=1) == np.argmax(test_Y, axis=1)
-            test_accuracy = np.sum(correct_predictions) / test_Y.shape[0]
-            print(f"Validation Loss: {test_loss}, Validation Accuracy: {test_accuracy * 100}%")
-            test_loss.append(test_loss)
-            test_accuracy.append(test_accuracy)
+            accuracy = np.sum(correct_predictions) / test_Y.shape[0]
+            print(f"Validation Loss: {loss}, Validation Accuracy: {accuracy * 100}%")
+            test_loss.append(loss)
+            test_accuracy.append(accuracy)
 
+        # Early stopping: Stop training if the relative loss improvement is less than 1e-3 for 10 epochs
+        if len(training_loss) > 10 and all(np.abs(np.diff(training_loss[-11:]) / training_loss[-11:-1]) < 1e-3):
+            print("Early stopping: Loss has not decreased for 10 epochs.")
+            break
 
         
     print("Training complete!")
@@ -246,17 +240,17 @@ def train(train_loader, test_loader, epochs=10000, learning_rate=0.01):
 def main():
     batch_size = 64
     train_loader, test_loader = load_data(batch_size)
-
+    epochs = 100
     # Start training
     training_loss, test_loss, training_accuracy, test_accuracy = \
-        train(train_loader, test_loader, epochs=10000, learning_rate=0.1)
+        train(train_loader, test_loader, epochs=epochs, learning_rate=0.1)
     
     # PLOT TRAINING LOSS AND TEST LOSS ON ONE SUBPLOT (epoch vs loss)
 # PLOT TRAINING ACCURACY AND TEST ACCURACY ON A SECOND SUBPLOT (epoch vs accuracy)
 
     epochs_train = list(range(1, len(training_loss) + 1)) # Epochs for training loss (1, 2, ..., N)
 
-    epochs_test = list(range(100, (len(test_loss) + 1) * 100, 100)) # Epochs for test loss (100, 200, ..., N*100)
+    epochs_test = list(range(10, (len(test_loss) + 1) * 10, 10)) # Epochs for test loss (100, 200, ..., N*100)
 
     # Create a figure with two subplots
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6))
@@ -279,7 +273,6 @@ def main():
     plt.tight_layout()
     plt.show()
 
-    import ipdb; ipdb.set_trace()
 
 if __name__ == "__main__":
     main()
