@@ -38,3 +38,5 @@ __IMPORTANT:__ To run on derecho, change `#PBS -q casper` to `#PBS -q main`.
 This can be run using `qsub <script name>`. The status of all active runs can be checked using `qstat -u <username>` and all ended scripts `qstat -x -u <username>`.
 
 3. Transfering files can be done using `scp` or `sftp`. An example to go from local to derecho would be to run `scp local_file <username>@derecho.hpc.ucar.edu:/path/to/hpc/folder`.
+
+4. To run an interactive job on casper, do `qsub -I -l select=1:ncpus=1:mem=20GB:ngpus=1 -q casper@casper-pbs -l walltime=00:10:00 -A <ACCOUNT #>` and for derecho `qsub -I -l select=1:ncpus=1:mem=20GB:ngpus=1 -q main@desched1 -l walltime=00:10:00 -A <ACCOUNT #>`
