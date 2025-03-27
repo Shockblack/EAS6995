@@ -16,7 +16,7 @@ import os
 path_dir = os.path.dirname(os.path.abspath(__file__))
 
 # Check for GPU availability
-device = torch.device("mps" if torch.mps.is_available() else "cpu")
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
 # Load and process data
