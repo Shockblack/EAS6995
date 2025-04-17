@@ -34,22 +34,23 @@ mse_cost_function = torch.nn.MSELoss()  # Mean squared error loss function
 optimizer = torch.optim.Adam(net.parameters())  # Adam optimizer
 
 ## PDE as loss function. Thus would use the network which we call as u_theta
-def f(x,t, net):
+def f(x,t, net, alpha):
+    x.requires_grad_(True)  # Enable gradient tracking for x
+    t.requires_grad_(True)  # Enable gradient tracking for t
     u = net(x,t)  # Network output (dependent variable u based on independent variables x,t)
     
-    # TO DO: Compute the gradient of u with respect to x and t (du/dx, du/dt)
-    u_x = None  # TO DO: Compute du/dx
-    u_t = None  # TO DO: Compute du/dt
+    # Compute the gradient of u with respect to x and t (du/dx, du/dt)
+    du_x = torch.autograd.grad(u, x, torch.ones_like(u), create_graph=True, retain_graph=True)[0]
+    du_t = torch.autograd.grad(u, t, torch.ones_like(u), create_graph=True, retain_graph=True)[0]
+
+    # Second derivative of u with respect to x (du/dx^2)
+    ddu_x = torch.autograd.grad(du_x, x, torch.ones_like(du_x), create_graph=True, retain_graph=True)[0]
     
-    pde = u_x - 2*u_t - u  # PDE residual (replace with your own equation if needed)
+    pde = du_t - alpha * ddu_x
     return pde
 
-# TO DO: Define Boundary Conditions (BC)
-x_bc = None  # TO DO: Define boundary condition x values
-t_bc = None  # TO DO: Define boundary condition t values
 
-# TO DO: Set the boundary condition for u(x,t) (u_bc)
-u_bc = None  # TO DO: Define boundary condition for u(x,t)
+
 
 ### (3) Training / Fitting
 iterations = 20000  # Number of training iterations
@@ -57,29 +58,49 @@ previous_validation_loss = 99999999.0  # Initial large validation loss for compa
 for epoch in range(iterations):
     optimizer.zero_grad()  # Zero out gradients at the beginning of each epoch
 
-    # TO DO: Loss based on boundary conditions (use BC dataset)
-    pt_x_bc = None  # TO DO: Convert x_bc to torch variable
-    pt_t_bc = None  # TO DO: Convert t_bc to torch variable
-    pt_u_bc = None  # TO DO: Convert u_bc to torch variable
+    # Define Boundary Conditions (BC)
+    N_bc = 100
+    t_bc_0 = torch.linspace(0,1,N_bc).view(-1,1).requires_grad_(True).to(device)
+    t_bc_1 = torch.linspace(0,1,N_bc).view(-1,1).requires_grad_(True).to(device)
+    x_bc_0 = torch.zeros(N_bc,1).requires_grad_(True).to(device)  # x=0
+    x_bc_1 = torch.ones(N_bc,1).requires_grad_(True).to(device)  # x=1
+    alpha = 0.01
 
-    net_bc_out = net(pt_x_bc, pt_t_bc)  # Output from the network for boundary conditions
-    mse_u = mse_cost_function(net_bc_out, pt_u_bc)  # BC loss (MSE between predicted and actual u)
+    # Set the boundary condition for u(x,t) (u_bc)
+    u_bc_0 = torch.zeros(N_bc,1).to(device)  # u(x=0,t) = 0
+    u_bc_1 = torch.zeros(N_bc,1).to(device)  # u(x=1,t) = 0
+
+    # Set initial conditions (u(x,0))
+    N_ic = 100
+    x_ic = torch.linspace(0,1,N_ic).view(-1,1).requires_grad_(True).to(device)  # x values
+    t_ic = torch.zeros(N_ic,1).requires_grad_(True).to(device)  # t=0
+
+    u_ic = torch.sin(np.pi*x_ic)
+
+    # TO DO: Loss based on boundary conditions (use BC dataset)
+    # pt_x_bc = None  # TO DO: Convert x_bc to torch variable
+    # pt_t_bc = None  # TO DO: Convert t_bc to torch variable
+    # pt_u_bc = None  # TO DO: Convert u_bc to torch variable
+
+    net_bc_0_out = net(x_bc_0, t_bc_0)  # Output from the network for boundary conditions
+    net_bc_1_out = net(x_bc_1, t_bc_1)  # Output from the network for boundary conditions
+    net_ic_out = net(x_ic, t_ic)
+
+    mse_ubc_0 = mse_cost_function(net_bc_0_out, u_bc_0)  # BC loss (MSE between predicted and actual u)
+    mse_ubc_1 = mse_cost_function(net_bc_1_out, u_bc_1)  # BC loss (MSE between predicted and actual u)
+    mse_uic = mse_cost_function(net_ic_out, u_ic)  # IC loss (MSE between predicted and actual u)
 
     # TO DO: Collocation points for PDE loss (random points in the domain where the PDE should be satisfied)
-    x_collocation = None  # TO DO: Define collocation x points
-    t_collocation = None  # TO DO: Define collocation t points
-    all_zeros = None  # TO DO: Define zeros for PDE residual loss
-
-    pt_x_collocation = None  # TO DO: Convert collocation x points to torch variable
-    pt_t_collocation = None  # TO DO: Convert collocation t points to torch variable
-    pt_all_zeros = None  # TO DO: Convert zeros to torch variable
+    x_collocation = torch.linspace(0,1,100).view(-1,1).requires_grad_(True).to(device)
+    t_collocation = torch.linspace(0,1,100).view(-1,1).requires_grad_(True).to(device)
+    all_zeros = torch.zeros(x_collocation.shape[0],1).requires_grad_(True).to(device)  # Placeholder for PDE residual
 
     # TO DO: Compute the PDE residual using the function f(x,t)
-    f_out = None  # TO DO: Call f(pt_x_collocation, pt_t_collocation, net)
-    mse_f = None  # TO DO: Compute PDE loss
+    f_out = f(x_collocation, t_collocation, net, alpha)  # PDE residual
+    mse_f = mse_cost_function(f_out, all_zeros)  # PDE loss (MSE between predicted and actual PDE residual)
 
     # Combining the boundary condition loss and PDE loss
-    loss = mse_u + mse_f
+    loss = mse_f + mse_ubc_0 + mse_ubc_1 + mse_uic  # Total loss
 
     # Backpropagation and optimizer step
     loss.backward()  # Backpropagate the loss
@@ -106,9 +127,10 @@ ms_x, ms_t = np.meshgrid(x, t)  # Create meshgrid for plotting
 x = np.ravel(ms_x).reshape(-1,1)  # Flatten the meshgrid for input
 t = np.ravel(ms_t).reshape(-1,1)  # Flatten the meshgrid for input
 
-pt_x = None  # TO DO: Convert x to torch variable
-pt_t = None  # TO DO: Convert t to torch variable
-pt_u = None  # TO DO: Get network prediction
+pt_x = torch.tensor(x, dtype=torch.float32)  # Convert x to torch variable
+pt_t = torch.tensor(t, dtype=torch.float32)  # Convert t to torch variable
+pt_u = net(pt_x, pt_t)  # Get the prediction from the network
+pt_u = pt_u.detach()  # Detach from the graph
 
 u = pt_u.data.cpu().numpy()  # Convert the prediction back to numpy array
 ms_u = u.reshape(ms_x.shape)  # Reshape for plotting
