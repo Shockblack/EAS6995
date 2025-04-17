@@ -53,7 +53,7 @@ def train_and_validate(train_loader, val_loader, model, optimizer, scheduler_fn,
     criterion = nn.CrossEntropyLoss()
 
     train_acc, val_acc = [], []
-    train_loss, val_loss = []
+    train_loss, val_loss = [], []
     global_step = 0
     T = epochs * len(train_loader)
     T0 = T // 5
@@ -104,6 +104,7 @@ def train_and_validate(train_loader, val_loader, model, optimizer, scheduler_fn,
 
 # Cross-validation for hyperparameter tuning
 def cross_validate_model(dataset, model_fn, params, k_folds=5, epochs=5):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     kfold = KFold(n_splits=k_folds, shuffle=True)
     results = {}
 
@@ -206,4 +207,3 @@ def run_experiment():
 
 if __name__ == '__main__':
     run_experiment()
-
